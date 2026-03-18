@@ -1,7 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
-import html2pdf from 'html2pdf.js'
 import './App.css'
 
 function App() {
@@ -12,22 +11,6 @@ function App() {
   
   const [plan, setPlan] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-
-  // Chatbot State
-  const [isChatOpen, setIsChatOpen] = useState(false)
-  const [chatInput, setChatInput] = useState('')
-  const [chatHistory, setChatHistory] = useState([
-    { sender: 'ai', text: "Hi! I'm your AI Study Coach. Need any study tips, motivation, or concept explanations? Just ask!" }
-  ])
-  const [isChatLoading, setIsChatLoading] = useState(false)
-  const chatBodyRef = useRef(null)
-
-  // Auto-scroll chat to bottom
-  useEffect(() => {
-    if (chatBodyRef.current) {
-      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight
-    }
-  }, [chatHistory])
 
   const updateArray = (setter, array, index, field, value) => {
     const newArray = [...array]
@@ -50,6 +33,7 @@ function App() {
     e.preventDefault()
     setIsLoading(true)
     
+    // Fallback to localhost if env var is missing during local dev
     const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
     
     try {
@@ -66,39 +50,6 @@ function App() {
       setPlan("⚠️ Error connecting to server. Please ensure the backend is running and accessible.")
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleDownload = () => {
-    if (!plan) return;
-    const element = document.getElementById('plan-content');
-    const opt = {
-      margin:       0.5,
-      filename:     'Nova_Study_Plan.pdf',
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2 },
-      jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
-    };
-    html2pdf().set(opt).from(element).save();
-  }
-
-  const handleChatSubmit = async (e) => {
-    e.preventDefault()
-    if (!chatInput.trim()) return
-
-    const userMsg = chatInput.trim()
-    setChatHistory(prev => [...prev, { sender: 'user', text: userMsg }])
-    setChatInput('')
-    setIsChatLoading(true)
-
-    const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
-    try {
-      const response = await axios.post(`${API_URL}/api/chat`, { message: userMsg })
-      setChatHistory(prev => [...prev, { sender: 'ai', text: response.data.reply }])
-    } catch (error) {
-      setChatHistory(prev => [...prev, { sender: 'ai', text: "⚠️ Sorry, I'm having trouble connecting to the server right now." }])
-    } finally {
-      setIsChatLoading(false)
     }
   }
 
@@ -212,82 +163,16 @@ function App() {
       {plan && (
         <div className="results-container" id="results">
           <div className="results-header">
-            <div className="results-header-left">
-              <div style={{fontSize: '2rem'}}>✨</div>
-              <h2>Your Custom Pathway</h2>
-              <div className="badge">AI Generated</div>
-            </div>
-            
-            <button className="btn-download" onClick={handleDownload} title="Download as Markdown">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-              </svg>
-              Download Plan
-            </button>
+            <div style={{fontSize: '2rem'}}>✨</div>
+            <h2>Your Custom Pathway</h2>
+            <div className="badge">AI Generated</div>
           </div>
           
-          <div className="markdown-body" id="plan-content">
+          <div className="markdown-body">
             <ReactMarkdown>{plan}</ReactMarkdown>
           </div>
         </div>
       )}
-
-      {/* CHATBOT WIDGET */}
-      <div className={`chat-widget ${isChatOpen ? 'open' : ''}`}>
-        {!isChatOpen ? (
-          <button className="chat-toggle-btn" onClick={() => setIsChatOpen(true)}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
-            </svg>
-            Study Coach
-          </button>
-        ) : (
-          <div className="chat-window">
-            <div className="chat-header">
-              <div className="chat-title">
-                <span className="dot"></span> AI Study Coach
-              </div>
-              <button className="chat-close" onClick={() => setIsChatOpen(false)}>×</button>
-            </div>
-            <div className="chat-body" ref={chatBodyRef}>
-              {chatHistory.map((msg, i) => (
-                <div key={i} className={`chat-bubble-container ${msg.sender}`}>
-                  <div className="chat-bubble">
-                    <ReactMarkdown>{msg.text}</ReactMarkdown>
-                  </div>
-                </div>
-              ))}
-              {isChatLoading && (
-                <div className="chat-bubble-container ai returning">
-                  <div className="chat-bubble typing">
-                    <span className="typing-dot"></span>
-                    <span className="typing-dot"></span>
-                    <span className="typing-dot"></span>
-                  </div>
-                </div>
-              )}
-            </div>
-            <form className="chat-input-area" onSubmit={handleChatSubmit}>
-              <input 
-                type="text" 
-                placeholder="Ask for tips or motivation..." 
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                disabled={isChatLoading}
-              />
-              <button type="submit" disabled={isChatLoading || !chatInput.trim()}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13"></line>
-                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                </svg>
-              </button>
-            </form>
-          </div>
-        )}
-      </div>
-
     </div>
   )
 }
