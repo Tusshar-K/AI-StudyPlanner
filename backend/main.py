@@ -45,6 +45,9 @@ class StudyPreferences(BaseModel):
     course_difficulties: List[CourseDifficulty]
     hours_per_day: float
 
+class ChatRequest(BaseModel):
+    message: str
+
 # --- The API Endpoint ---
 @app.post("/api/generate-plan")
 async def generate_plan(prefs: StudyPreferences):
@@ -59,8 +62,10 @@ async def generate_plan(prefs: StudyPreferences):
         "- Distribute the available daily study time logically.\n"
         "- Prioritize subjects tied to upcoming exams, heavily weighting those with closer dates.\n"
         "- Allocate extra time and foundational concept-building for 'Weak' subjects and 'Hard' courses.\n"
+        "- CRITICAL: You MUST explicitly schedule dedicated 'Revision Slots' for subjects tied to upcoming exams and overall structured review.\n"
         "- Schedule lighter revision and practice sessions for 'Strong' subjects.\n"
         "- Keep the formatting clean, using Markdown (bolding, bullet points, and clear day headers)."
+        "- Make sure to keep the response easy to read and understand."
     )
 
     # User Prompt
@@ -95,3 +100,30 @@ async def generate_plan(prefs: StudyPreferences):
     except Exception as e:
         print(f"Gemini Error: {e}")
         raise HTTPException(status_code=500, detail="The AI engine failed to generate a plan.")
+
+# --- Chatbot Endpoint ---
+@app.post("/api/chat")
+async def chat_with_ai(chat_req: ChatRequest):
+    if not os.getenv("GEMINI_API_KEY"):
+        raise HTTPException(status_code=500, detail="Gemini API Key is missing.")
+    
+    chat_system_prompt = (
+        "You are an encouraging, expert AI study coach. "
+        "Provide concise, actionable study tips, motivation, and answers to student queries. "
+        "Keep responses friendly and formatted in clean Markdown."
+    )
+    
+    try:
+        response = await client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=chat_req.message,
+            config=types.GenerateContentConfig(
+                system_instruction=chat_system_prompt,
+                temperature=0.6,
+                max_output_tokens=1000,
+            )
+        )
+        return {"reply": response.text}
+    except Exception as e:
+        print(f"Chatbot Error: {e}")
+        raise HTTPException(status_code=500, detail="The AI study coach is currently unavailable.")
