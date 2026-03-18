@@ -96,6 +96,7 @@ function App() {
       const response = await axios.post(`${API_URL}/api/chat`, { message: userMsg })
       setChatHistory(prev => [...prev, { sender: 'ai', text: response.data.reply }])
     } catch (error) {
+      console.error("Chat error:", error);
       setChatHistory(prev => [...prev, { sender: 'ai', text: "⚠️ Sorry, I'm having trouble connecting to the server right now." }])
     } finally {
       setIsChatLoading(false)
