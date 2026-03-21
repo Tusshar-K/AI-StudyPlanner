@@ -6,12 +6,20 @@ import './App.css'
 
 function App() {
   const [exams, setExams] = useState([{ name: '', date: '', subjects: '' }])
-  const [strengths, setStrengths] = useState([{ subject: '', strength: 'Weak' }])
+  const [subjects, setSubjects] = useState([{ name: '' }])
   const [difficulties, setDifficulties] = useState([{ course: '', difficulty: 'Medium' }])
   const [hoursPerDay, setHoursPerDay] = useState(3)
   
   const [plan, setPlan] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+
+  // Quiz State
+  const [isQuizMode, setIsQuizMode] = useState(false)
+  const [quizData, setQuizData] = useState(null)
+  const [isQuizLoading, setIsQuizLoading] = useState(false)
+  const [userAnswers, setUserAnswers] = useState({})
+  const [quizResult, setQuizResult] = useState(null)
+  const [subjectEvaluations, setSubjectEvaluations] = useState({})
 
   // Chatbot State
   const [isChatOpen, setIsChatOpen] = useState(false)
@@ -40,12 +48,13 @@ function App() {
   }
 
   const removeRow = (setter, array, index) => {
-    if (array.length === 1) return; // Keep at least one row
+    if (array.length === 1) return;
     const newArray = [...array]
     newArray.splice(index, 1)
     setter(newArray)
   }
 
+  // Generate Plan endpoint
   const handleGeneratePlan = async (e) => {
     e.preventDefault()
     setIsLoading(true)
@@ -55,7 +64,8 @@ function App() {
     try {
       const response = await axios.post(`${API_URL}/api/generate-plan`, {
         exams: exams.filter(e => e.name !== ''),
-        subject_strengths: strengths.filter(s => s.subject !== ''),
+        subjects: subjects.map(s => s.name).filter(n => n !== ''),
+        subject_evaluations: subjectEvaluations,
         course_difficulties: difficulties.filter(d => d.course !== ''),
         hours_per_day: parseFloat(hoursPerDay)
       })
@@ -69,6 +79,7 @@ function App() {
     }
   }
 
+  // Download PDF
   const handleDownload = () => {
     if (!plan) return;
     const element = document.getElementById('plan-content');
@@ -82,6 +93,7 @@ function App() {
     html2pdf().set(opt).from(element).save();
   }
 
+  // Chatbot logic
   const handleChatSubmit = async (e) => {
     e.preventDefault()
     if (!chatInput.trim()) return
@@ -101,6 +113,87 @@ function App() {
     } finally {
       setIsChatLoading(false)
     }
+  }
+
+  // Generate Trivia Quiz logic
+  const handleTestKnowledge = async () => {
+    const validSubjects = subjects.map(s => s.name).filter(n => n !== '');
+    if (validSubjects.length === 0) {
+      alert("Please enter at least one subject to generate a quiz.");
+      return;
+    }
+
+    setIsQuizLoading(true);
+    setIsQuizMode(true);
+    setQuizData(null);
+    setQuizResult(null);
+    setUserAnswers({});
+    
+    const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+    try {
+      const response = await axios.post(`${API_URL}/api/generate-quiz`, { subjects: validSubjects })
+      
+      // Parse the JSON string from Gemini
+      let parsedQuiz = response.data.quiz_data;
+      if (typeof parsedQuiz === 'string') {
+          // Sometimes Gemini wraps JSON in markdown blocks despite mime-type
+          if (parsedQuiz.startsWith("```json")) {
+              parsedQuiz = parsedQuiz.replace(/```json\n/, '').replace(/\n```/, '');
+          }
+          parsedQuiz = JSON.parse(parsedQuiz);
+      }
+      setQuizData(parsedQuiz);
+    } catch (error) {
+      console.error("Quiz generation error:", error);
+      alert("Failed to generate quiz. Please try again.");
+      setIsQuizMode(false);
+    } finally {
+      setIsQuizLoading(false);
+    }
+  }
+
+  const handleAnswerChange = (qIndex, answer) => {
+    setUserAnswers(prev => ({
+      ...prev,
+      [qIndex]: answer
+    }));
+  }
+
+  // Grade Quiz logic
+  const handleSubmitQuiz = () => {
+    let score = 0;
+    const subjectScores = {}; 
+    
+    quizData.forEach((q, idx) => {
+      const userAns = (userAnswers[idx] || '').toString().trim().toLowerCase();
+      const realAns = q.answer.toString().trim().toLowerCase();
+      const isCorrect = userAns === realAns;
+      
+      if (!subjectScores[q.subject]) {
+        subjectScores[q.subject] = { total: 0, correct: 0 };
+      }
+      subjectScores[q.subject].total += 1;
+      
+      if (isCorrect) {
+        score += 1;
+        subjectScores[q.subject].correct += 1;
+      }
+    });
+
+    const evaluations = {};
+    Object.keys(subjectScores).forEach(sub => {
+      const ratio = subjectScores[sub].correct / subjectScores[sub].total;
+      if (ratio >= 0.8) evaluations[sub] = "Strong - Needs minimal review";
+      else if (ratio >= 0.5) evaluations[sub] = "Average - Needs standard practice";
+      else evaluations[sub] = "Poor - NEEDS HEAVY FOCUS AND REVISION";
+    });
+
+    setSubjectEvaluations(evaluations);
+    setQuizResult({ score, total: quizData.length });
+  }
+
+  const closeQuiz = () => {
+    setIsQuizMode(false);
   }
 
   return (
@@ -134,28 +227,41 @@ function App() {
           </button>
         </div>
 
-        {/* STRENGTHS SECTION */}
+        {/* SUBJECTS SECTION (NEW) */}
         <div className="form-section">
           <div className="section-header">
-            <h3><span className="icon">💪</span> Subject Strengths</h3>
+            <h3><span className="icon">🧠</span> Academic Subjects</h3>
           </div>
-          {strengths.map((item, i) => (
+          {subjects.map((item, i) => (
             <div key={i} className="row-group">
-              <input type="text" placeholder="Subject (e.g. Mathematics)" value={item.subject} onChange={(e) => updateArray(setStrengths, strengths, i, 'subject', e.target.value)} required />
-              <select value={item.strength} onChange={(e) => updateArray(setStrengths, strengths, i, 'strength', e.target.value)}>
-                <option value="Weak">Weak (Needs Focus)</option>
-                <option value="Strong">Strong (Just Revise)</option>
-              </select>
-              {strengths.length > 1 && (
-                <button type="button" className="btn-remove" onClick={() => removeRow(setStrengths, strengths, i)} title="Remove Subject">
+              <input type="text" placeholder="Subject (e.g. Mathematics)" value={item.name} onChange={(e) => updateArray(setSubjects, subjects, i, 'name', e.target.value)} required />
+              {subjects.length > 1 && (
+                <button type="button" className="btn-remove" onClick={() => removeRow(setSubjects, subjects, i)} title="Remove Subject">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 </button>
               )}
             </div>
           ))}
-          <button type="button" className="btn-add" onClick={() => addRow(setStrengths, strengths, { subject: '', strength: 'Weak' })}>
-            <span>+</span> Add Another Subject
-          </button>
+          <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn-add" onClick={() => addRow(setSubjects, subjects, { name: '' })}>
+              <span>+</span> Add Another Subject
+            </button>
+            <button type="button" className="btn-quiz" onClick={handleTestKnowledge}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+              {Object.keys(subjectEvaluations).length > 0 ? "Retake Knowledge Quiz" : "Test My Knowledge (AI Trivia)"}
+            </button>
+          </div>
+          
+          {/* Display current evaluations if quiz was taken */}
+          {Object.keys(subjectEvaluations).length > 0 && (
+             <div className="evaluations-badge-container">
+               {Object.entries(subjectEvaluations).map(([sub, status], idx) => (
+                  <div key={idx} className={`eval-badge ${status.includes('Strong') ? 'eval-strong' : status.includes('Poor') ? 'eval-poor' : 'eval-avg'}`}>
+                     {sub}: {status.split(' -')[0]}
+                  </div>
+               ))}
+             </div>
+          )}
         </div>
 
         {/* COURSE DIFFICULTY SECTION */}
@@ -288,6 +394,97 @@ function App() {
           </div>
         )}
       </div>
+
+      {/* QUIZ OVERLAY */}
+      {isQuizMode && (
+        <div className="quiz-overlay">
+          <div className="quiz-modal">
+            <div className="quiz-header">
+              <h2>Diagnostic Trivia</h2>
+              <button className="btn-close-quiz" onClick={closeQuiz}>×</button>
+            </div>
+            
+            <div className="quiz-content">
+              {isQuizLoading ? (
+                <div className="quiz-loader">
+                   <div className="spinner"></div>
+                   <p>Generating adaptive questions across your subjects...</p>
+                </div>
+              ) : quizData ? (
+                <div className="quiz-questions">
+                   {quizResult && (
+                     <div className="quiz-score-banner">
+                        <h3>You scored {quizResult.score} / {quizResult.total}!</h3>
+                        <p>Your study plan&apos;s priorities have been automatically adjusted based on this evaluation.</p>
+                     </div>
+                   )}
+                   
+                   {quizData.map((q, idx) => {
+                     const isSubmitted = quizResult !== null;
+                     const userAns = (userAnswers[idx] || '').toString().trim().toLowerCase();
+                     const realAns = q.answer.toString().trim().toLowerCase();
+                     const isCorrect = userAns === realAns;
+                     
+                     let cardClass = "quiz-card";
+                     if (isSubmitted) {
+                       cardClass += isCorrect ? " correct-card" : " incorrect-card";
+                     }
+
+                     return (
+                       <div key={idx} className={cardClass}>
+                         <div className="quiz-subject-tag">{q.subject}</div>
+                         <h4>{idx + 1}. {q.question}</h4>
+                         
+                         {q.type === 'mcq' ? (
+                           <div className="quiz-options">
+                             {q.options.map((opt, oIdx) => (
+                                <label key={oIdx} className="quiz-option-label">
+                                  <input 
+                                    type="radio" 
+                                    name={`question-${idx}`} 
+                                    value={opt}
+                                    checked={userAnswers[idx] === opt}
+                                    onChange={() => handleAnswerChange(idx, opt)}
+                                    disabled={isSubmitted}
+                                  />
+                                  <span>{opt}</span>
+                                </label>
+                             ))}
+                           </div>
+                         ) : (
+                           <div className="quiz-input">
+                              <input 
+                                type="text" 
+                                placeholder="Type your answer..."
+                                value={userAnswers[idx] || ''}
+                                onChange={(e) => handleAnswerChange(idx, e.target.value)}
+                                disabled={isSubmitted}
+                              />
+                           </div>
+                         )}
+
+                         {isSubmitted && !isCorrect && (
+                           <div className="quiz-correction">
+                              Correct answer: <strong>{q.answer}</strong>
+                           </div>
+                         )}
+                       </div>
+                     )
+                   })}
+
+                   {!quizResult && (
+                     <button className="btn-submit-quiz" onClick={handleSubmitQuiz}>
+                       Submit Answers & Analyze
+                     </button>
+                   )}
+                </div>
+              ) : (
+                 <p>Failed to load quiz.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )
